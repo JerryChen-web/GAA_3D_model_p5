@@ -1,0 +1,1096 @@
+
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GAA (Gate-All-Around) 電晶體 3D 互動模型</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 基礎全域設定與全裝置字體智能縮放 (針對平板、電腦、4K螢幕優化) */
+        body { margin: 0; overflow: hidden; background-color: #050505; color: white; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; transition: background-color 0.5s ease; font-size: 15px; }
+        @media (min-width: 768px) { body { font-size: 16px; } }  /* 平板級別別距放大 */
+        @media (min-width: 1440px) { body { font-size: 17px; } } /* 一般桌機放大 */
+        @media (min-width: 2000px) { body { font-size: 20px; } } /* 2K 解析度放大 */
+        @media (min-width: 3000px) { body { font-size: 24px; } } /* 4K 解析度放大 */
+        
+        #canvas-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; pointer-events: none; }
+        .pointer-events-auto { pointer-events: auto; }
+        
+        /* 獨立座標軸容器 (右上角)，加入平滑淡出過場 */
+        #axes-inset { position: absolute; top: 80px; right: 20px; width: 120px; height: 120px; z-index: 20; pointer-events: none; transition: opacity 0.4s ease; }
+        @media (min-width: 2000px) { #axes-inset { width: 180px; height: 180px; top: 100px; right: 40px; } }
+        .axes-legend { position: absolute; bottom: -15px; left: 50%; transform: translateX(-50%); font-size: 0.75em; font-weight: bold; white-space: nowrap; background: rgba(255,255,255,0.9); padding: 4px 10px; border-radius: 6px; color: #1e293b; box-shadow: 0 2px 10px rgba(0,0,0,0.08); border: 1px solid rgba(0,0,0,0.05); }
+        body.dark-mode .axes-legend { background: rgba(0,0,0,0.7); color: #e2e8f0; border: 1px solid rgba(255,255,255,0.15); box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+
+        /* 自訂捲軸與滑桿樣式 */
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(15, 23, 42, 0.25); border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(15, 23, 42, 0.45); }
+        
+        input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 1.3em; width: 1.3em; border-radius: 50%; background: #0ea5e9; cursor: pointer; margin-top: -0.45em; box-shadow: 0 0 10px rgba(14, 165, 233, 0.4); transition: transform 0.1s, background-color 0.2s, box-shadow 0.2s; }
+        input[type=range]::-webkit-slider-thumb:hover { background: #0284c7; transform: scale(1.15); box-shadow: 0 0 12px rgba(2, 132, 199, 0.5); }
+        input[type=range]::-webkit-slider-thumb:active { transform: scale(1.25); background: #0369a1; }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 0.4em; cursor: pointer; background: rgba(15, 23, 42, 0.15); border-radius: 0.2em; transition: background-color 0.2s; }
+        input[type=range]:hover::-webkit-slider-runnable-track { background: rgba(15, 23, 42, 0.25); }
+        input[type=range]:focus { outline: none; }
+        
+        /* Toggle 開關樣式 */
+        .toggle-checkbox:checked { right: 0; border-color: #db2777; }
+        .toggle-checkbox:checked + .toggle-label { background-color: #db2777; }
+        .toggle-checkbox { right: 0; z-index: 1; border-color: #cbd5e1; transition: all 0.3s; }
+        .toggle-label { width: 2.8em; height: 1.4em; background-color: #cbd5e1; border-radius: 9999px; transition: all 0.3s; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); }
+        
+        /* ================= 玻璃擬態面板 ================= */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.92); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.4); box-shadow: 0 16px 40px -8px rgba(15, 23, 42, 0.1);
+            display: flex; flex-direction: column; transition: max-height 0.3s ease, background-color 0.5s ease;
+        }
+        .panel-section { background: rgba(248, 250, 252, 0.7); border: 1px solid rgba(226, 232, 240, 0.8); border-radius: 0.75rem; padding: 1.2em; transition: all 0.3s ease; }
+        .panel-section:hover { border-color: #cbd5e1; background: rgba(241, 245, 249, 0.8); }
+        .val-badge { background: #f1f5f9; padding: 0.2em 0.6em; border-radius: 0.3em; border: 1px solid #e2e8f0; color: #0f172a; font-family: monospace; font-weight: 700; box-shadow: inset 0 1px 2px rgba(0,0,0,0.02); }
+        
+        select, input[type=number] { 
+            background-color: #ffffff; color: #0f172a; border: 1px solid #cbd5e1; outline: none; 
+            padding: 0.3em 0.6em; border-radius: 0.3em; transition: all 0.2s ease; box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+        }
+        select:hover, input[type=number]:hover { border-color: #94a3b8; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        select:focus, input[type=number]:focus { border-color: #0ea5e9; box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.2); }
+
+        .drag-handle { cursor: grab; padding: 0.8em 1.2em; background: rgba(241, 245, 249, 0.8); border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; border-radius: 1rem 1rem 0 0; transition: background-color 0.2s; }
+        .drag-handle:hover { background: #e2e8f0; }
+        .drag-handle:active { cursor: grabbing; }
+        .minimized-panel { max-height: 3.8em !important; overflow: hidden !important; padding-bottom: 0 !important; }
+
+        .tooltip-icon {
+            display: inline-flex; align-items: center; justify-content: center; width: 1.4em; height: 1.4em; border-radius: 50%;
+            background: #e2e8f0; color: #475569; font-size: 0.75em; font-weight: bold; cursor: help; margin-left: 0.5em; transition: all 0.2s; border: 1px solid transparent;
+        }
+        .tooltip-icon:hover { background: #0ea5e9; color: white; border-color: #0284c7; transform: scale(1.1); box-shadow: 0 2px 6px rgba(14, 165, 233, 0.3); }
+        
+        .theme-btn {
+            display: flex; align-items: center; gap: 0.6rem; padding: 0.6em 1.4em; background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(8px);
+            border: 1px solid #e2e8f0; border-radius: 9999px; color: #475569; cursor: pointer; transition: all 0.2s ease; font-weight: 600; font-size: 0.95em; box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+        }
+        .theme-btn:hover { background: #f8fafc; color: #0f172a; transform: translateY(-1px); border-color: #cbd5e1; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08); }
+        .theme-btn.active { background: #e0f2fe; border-color: #38bdf8; color: #0369a1; box-shadow: 0 4px 15px rgba(2, 132, 199, 0.15); }
+        
+        /* ================= 暗夜模式 (Dark Mode) ================= */
+        body.dark-mode { background-color: #050505; color: white; }
+        body.dark-mode .glass-panel { background: rgba(15, 20, 30, 0.85); border-color: rgba(255, 255, 255, 0.08); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.8); }
+        body.dark-mode .panel-section { background: rgba(0, 0, 0, 0.3); border-color: rgba(255, 255, 255, 0.05); }
+        body.dark-mode .panel-section:hover { border-color: rgba(255, 255, 255, 0.12); background: rgba(0, 0, 0, 0.4); }
+        body.dark-mode .val-badge { background: rgba(0, 0, 0, 0.5); border-color: rgba(255, 255, 255, 0.1); color: #e2e8f0; }
+        
+        body.dark-mode select, body.dark-mode input[type=number] { background-color: #1e293b; color: white; border-color: #475569; box-shadow: inset 0 1px 2px rgba(0,0,0,0.5); }
+        body.dark-mode select:hover, body.dark-mode input[type=number]:hover { border-color: #94a3b8; }
+        body.dark-mode select:focus, body.dark-mode input[type=number]:focus { border-color: #38bdf8; box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.3); }
+        
+        body.dark-mode .drag-handle { background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.05); }
+        body.dark-mode .drag-handle:hover { background: rgba(255,255,255,0.06); }
+        body.dark-mode .tooltip-icon { background: rgba(255,255,255,0.15); color: #e2e8f0; border-color: transparent; }
+        body.dark-mode .tooltip-icon:hover { background: #38bdf8; color: #0f172a; }
+        
+        body.dark-mode .theme-btn { background: rgba(15, 20, 30, 0.7); color: #9ca3af; border-color: rgba(255,255,255,0.05); box-shadow: none; }
+        body.dark-mode .theme-btn:hover { background: rgba(30, 41, 59, 0.8); color: #ffffff; border-color: rgba(255,255,255,0.15); }
+        body.dark-mode .theme-btn.active { background: rgba(8, 145, 178, 0.2); border-color: #06b6d4; color: #22d3ee; }
+        body.dark-mode #page-transition { background-color: #050505 !important; }
+        
+        body.dark-mode input[type=range]::-webkit-slider-runnable-track { background: rgba(255, 255, 255, 0.15); }
+        body.dark-mode input[type=range]:hover::-webkit-slider-runnable-track { background: rgba(255, 255, 255, 0.25); }
+        body.dark-mode input[type=range]::-webkit-slider-thumb { background: #ffffff; box-shadow: 0 0 10px rgba(255,255,255,0.5); }
+        body.dark-mode input[type=range]::-webkit-slider-thumb:hover { background: #e0f2fe; box-shadow: 0 0 15px rgba(255,255,255,0.8); }
+        body.dark-mode .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.25); }
+        body.dark-mode .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.4); }
+        
+        body.dark-mode .text-slate-800 { color: #ffffff !important; }
+        body.dark-mode .text-slate-700 { color: #f1f5f9 !important; }
+        body.dark-mode .text-slate-600 { color: #cbd5e1 !important; }
+        body.dark-mode .border-slate-200 { border-color: rgba(255,255,255,0.1) !important; }
+        
+        /* 公式區塊與文獻卡片暗夜模式適配 */
+        body.dark-mode .bg-blue-50 { background-color: rgba(23, 37, 84, 0.4) !important; border-color: rgba(30, 58, 138, 0.6) !important; }
+        body.dark-mode .bg-pink-50 { background-color: rgba(131, 24, 67, 0.4) !important; border-color: rgba(157, 23, 77, 0.6) !important; }
+        body.dark-mode .bg-indigo-50 { background-color: rgba(49, 46, 129, 0.4) !important; border-color: rgba(55, 48, 163, 0.6) !important; }
+        body.dark-mode .bg-white\/90 { background-color: rgba(15, 23, 42, 0.6) !important; border-color: rgba(255, 255, 255, 0.1) !important; }
+
+        /* 3D 空間標籤樣式 */
+        .scene-label {
+            position: absolute; background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(0, 0, 0, 0.15);
+            padding: 0.4em 0.8em; border-radius: 6px; font-size: 0.8em; font-weight: 600; letter-spacing: 0.05em; color: #1e293b;
+            pointer-events: none; transform: translate(-50%, -50%); backdrop-filter: blur(4px); transition: opacity 0.3s ease;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1); white-space: nowrap;
+        }
+        body.dark-mode .scene-label { background: rgba(15, 23, 42, 0.85); border-color: rgba(255, 255, 255, 0.2); color: #f8fafc; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+        
+        .grid-scale-label { position: absolute; font-size: 0.85em; color: #334155; pointer-events: none; font-family: monospace; background: rgba(255,255,255,0.9); padding: 0.3em 0.6em; border-radius: 6px; font-weight: bold; border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        body.dark-mode .grid-scale-label { color: #cbd5e1; background: rgba(15, 23, 42, 0.8); border-color: rgba(255,255,255,0.2); box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+        .math-font { font-family: 'Times New Roman', Times, serif; font-style: italic; }
+        
+        /* 文獻卡片效果 */
+        .ref-card { transition: all 0.2s ease; border-left: 4px solid transparent; background: #ffffff; border: 1px solid rgba(0,0,0,0.06); }
+        .ref-card:hover { transform: translateX(6px) scale(1.01); border-left-color: #0ea5e9; box-shadow: 0 12px 25px -5px rgba(15, 23, 42, 0.1); background: #f8fafc; z-index: 10; position: relative;}
+        body.dark-mode .ref-card { background: rgba(30, 41, 59, 0.5); border-color: rgba(255,255,255,0.05); border-left: 4px solid transparent; }
+        body.dark-mode .ref-card:hover { background: rgba(30, 41, 59, 0.9); border-left-color: #38bdf8; box-shadow: 0 12px 25px -5px rgba(0, 0, 0, 0.6); }
+
+        canvas { max-width: 100%; }
+        .tilt-preset-container { display: flex; flex-wrap: wrap; gap: 0.4em; justify-content: flex-end; margin-top: 0.5em; }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="dark-mode"> <!-- 預設為黑夜模式 -->
+
+    <!-- 主 3D 畫布 -->
+    <div id="canvas-container"></div>
+    
+    <!-- 右上角獨立座標軸 (XYZ) -->
+    <div id="axes-inset">
+        <div class="axes-legend">X(紅) Y(綠) Z(藍)</div>
+    </div>
+
+    <!-- 頁面切換過場畫面 -->
+    <div id="page-transition" class="absolute inset-0 bg-[#050505] z-[100] opacity-0 pointer-events-none transition-opacity duration-500"></div>
+
+    <!-- 動態比例尺 (Scale Bar) -->
+    <div id="scale-bar" class="absolute bottom-10 left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-none transition-opacity duration-300 z-20">
+        <div class="text-[0.9em] text-slate-800 dark:text-gray-200 mb-2 tracking-widest font-mono font-bold drop-shadow-sm bg-white/90 dark:bg-slate-800/80 px-4 py-1.5 rounded-md backdrop-blur-md border border-slate-200 dark:border-slate-600 shadow-md">
+            Gate Length : <span id="scale-val" class="text-cyan-600 dark:text-cyan-400">12.0</span> nm
+        </div>
+        <div class="w-64 h-[3px] bg-slate-400 dark:bg-slate-500 relative drop-shadow-sm" id="scale-line">
+            <div class="absolute left-0 -top-1.5 w-[3px] h-4 bg-slate-700 dark:bg-slate-300"></div>
+            <div class="absolute right-0 -top-1.5 w-[3px] h-4 bg-slate-700 dark:bg-slate-300"></div>
+            <div class="absolute left-1/2 -top-1 w-[2px] h-3 bg-slate-400 dark:bg-slate-500"></div>
+        </div>
+    </div>
+
+    <!-- 專題版權宣告 Footer -->
+    <div class="absolute bottom-2 w-full text-center z-50 pointer-events-none px-4">
+        <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400 opacity-90 tracking-wider font-semibold drop-shadow-md transition-colors">
+            &copy; 2026 逢甲大學 114-2 專題研究 | 指導教授：何家淮 老師 | 第 9 組：GAA 元件操作可靠度之研究
+        </p>
+    </div>
+
+    <!-- 日夜模式切換按鈕 -->
+    <button id="theme-toggle-btn" class="absolute top-6 right-6 lg:top-8 lg:right-8 glass-panel !p-3.5 rounded-full pointer-events-auto z-50 hover:scale-110 transition-transform flex items-center justify-center text-yellow-400 shadow-lg cursor-pointer border border-slate-700">
+        <svg id="icon-sun" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+        <svg id="icon-moon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+    </button>
+
+    <!-- 全域頂部導覽列 -->
+    <nav class="absolute top-6 left-1/2 -translate-x-1/2 glass-panel !flex-row !rounded-full !p-2 gap-2 z-50 pointer-events-auto shadow-lg max-w-[95vw] overflow-x-auto custom-scrollbar whitespace-nowrap border border-slate-200 dark:border-slate-700">
+        <button id="btn-structure" class="theme-btn active shrink-0">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+            <span>結構圖模式</span>
+        </button>
+        <button id="btn-characteristics" class="theme-btn shrink-0">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>
+            <span>特性分析</span>
+        </button>
+        <button id="btn-formula" class="theme-btn shrink-0">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+            <span>參考公式</span>
+        </button>
+        <button id="btn-references" class="theme-btn shrink-0">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
+            <span>文獻與來源</span>
+        </button>
+    </nav>
+
+    <div id="ui-layer">
+        
+        <!-- ================= 第 1 頁：結構圖模式 ================= -->
+        <div id="page-structure" class="absolute inset-0 transition-opacity duration-500 pointer-events-none z-10 opacity-100 visible">
+            <div class="absolute bottom-12 left-6 lg:bottom-20 lg:left-16 pointer-events-auto z-20 flex flex-col gap-6 w-[90vw] sm:w-[450px] xl:w-[500px] 2xl:w-[600px]">
+                <div class="border-l-[5px] border-cyan-500 pl-5 relative">
+                    <h1 class="text-4xl lg:text-5xl 2xl:text-6xl font-black tracking-wide text-slate-800 drop-shadow-md mb-2 hud-title flex flex-col">
+                        <span class="text-[0.3em] font-bold text-cyan-600 dark:text-cyan-400 tracking-[0.25em] uppercase mb-3">Advanced Node TCAD Model</span>
+                        GAA Nanosheet
+                        <span class="text-[0.45em] text-slate-600 mt-3 font-medium tracking-normal hud-subtitle">環繞式閘極奈米片電晶體</span>
+                    </h1>
+                </div>
+                
+                <div class="glass-panel !rounded-2xl !p-6 border border-slate-200/60 dark:border-slate-700/60 shadow-xl">
+                    <p class="text-[1em] text-slate-700 dark:text-slate-300 mb-6 leading-relaxed font-medium">
+                        Gate-All-Around (GAA) 架構是突破 FinFET 實體物理極限的次世代製程技術（應用於 3nm 以下節點）。本系統提供三維幾何探索與即時電學模擬。
+                    </p>
+                    <div class="flex gap-3 mb-6 flex-wrap">
+                        <span class="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-md text-[0.85em] text-slate-700 dark:text-slate-300 font-bold shadow-sm">
+                            <svg class="w-4 h-4 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5"></path></svg> 滑鼠拖曳旋轉
+                        </span>
+                        <span class="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-md text-[0.85em] text-slate-700 dark:text-slate-300 font-bold shadow-sm">
+                            <svg class="w-4 h-4 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg> 滾輪縮放大小
+                        </span>
+                    </div>
+                    <button id="btn-xray" class="w-full py-3 bg-white hover:bg-blue-50 dark:bg-blue-900/40 dark:hover:bg-blue-800 border border-slate-300 dark:border-blue-700/50 rounded-xl text-[1em] text-blue-700 dark:text-blue-300 font-bold tracking-wider transition-all flex justify-center items-center gap-2 shadow-sm hover:shadow-md hover:border-blue-300">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                        切換閘極剖面視角 (X-Ray)
+                    </button>
+                </div>
+            </div>
+
+            <!-- 3D 標籤 -->
+            <div id="labels-container" class="absolute inset-0 pointer-events-none z-10">
+                <div id="label-source" class="scene-label">Source (源極)</div>
+                <div id="label-drain" class="scene-label">Drain (汲極)</div>
+                <div id="label-gate" class="scene-label text-amber-700 dark:text-amber-400 border-amber-300">Gate (閘極)</div>
+                <div id="label-channel" class="scene-label text-blue-700 dark:text-blue-400 border-blue-300">Nanosheets (奈米片)</div>
+                <div id="label-sub" class="scene-label">Substrate (基板)</div>
+                <div id="label-grid-scale" class="grid-scale-label">網格: 1格 = 2.4 nm</div>
+            </div>
+        </div>
+
+        <!-- ================= 第 2 頁：特性分析模式 ================= -->
+        <div id="page-characteristics" class="absolute inset-0 transition-opacity duration-500 pointer-events-none opacity-0 z-0 invisible">
+            
+            <div id="panel-charts" class="absolute top-20 left-4 lg:top-24 lg:left-8 xl:left-12 glass-panel !rounded-2xl w-[90vw] sm:w-[420px] xl:w-[480px] 2xl:w-[550px] pointer-events-auto shadow-2xl">
+                <div class="drag-handle group">
+                    <div class="flex items-center gap-3 text-slate-600 dark:text-slate-400">
+                        <svg class="w-5 h-5 opacity-60 group-hover:opacity-100 transition-opacity" fill="currentColor" viewBox="0 0 24 24"><path d="M10 9h4V6h3l-5-5-5 5h3v3zm-1 1H6V7l-5 5 5 5v-3h3v-4zm14 2l-5-5v3h-3v4h3v3l5-5zm-9 3h-4v3H7l5 5 5-5h-3v-3z"></path></svg>
+                        <span class="text-[0.95em] font-bold uppercase tracking-wider">電學特性即時分析</span>
+                    </div>
+                    <button class="toggle-fold p-1.5 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-md text-slate-500 transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg></button>
+                </div>
+                
+                <div class="p-4 lg:p-6 flex flex-col gap-5 overflow-y-auto custom-scrollbar max-h-[75vh]">
+                    <div class="panel-section shrink-0 flex flex-col min-h-[220px] 2xl:min-h-[280px] !p-4 bg-white/50 dark:bg-slate-800/40">
+                        <h3 class="text-[0.9em] font-bold text-cyan-700 dark:text-cyan-400 mb-3 uppercase tracking-wider">ID-VD 輸出特性 (Output)</h3>
+                        <div class="w-full flex-1 relative"><canvas id="idvdChart"></canvas></div>
+                    </div>
+                    
+                    <div class="panel-section shrink-0 flex flex-col min-h-[220px] 2xl:min-h-[280px] !p-4 bg-white/50 dark:bg-slate-800/40">
+                        <div class="flex justify-between items-center mb-3">
+                            <h3 class="text-[0.9em] font-bold text-purple-700 dark:text-purple-400 uppercase tracking-wider">ID-VG 轉換特性 (Transfer)</h3>
+                            <div class="flex items-center gap-2">
+                                <span class="text-[0.8em] text-slate-600 dark:text-slate-400 font-bold group relative flex items-center">
+                                    Log Scale <span class="tooltip-icon">i</span>
+                                    <div class="absolute bottom-full right-0 mb-2 w-56 p-3 bg-slate-800 text-white text-[12px] font-normal rounded-lg shadow-xl hidden group-hover:block z-50 leading-relaxed border border-slate-600">對數座標軸 (Log10) 能清楚呈現次臨界區 (Vgs &lt; Vth) 的微小漏電流與 SS 擺幅狀態。</div>
+                                </span>
+                                <div class="relative inline-block w-10 mr-1 align-middle select-none transition duration-200 ease-in ml-2 cursor-pointer">
+                                    <input type="checkbox" id="log-toggle" class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer"/>
+                                    <label for="log-toggle" class="toggle-label block overflow-hidden h-5 rounded-full cursor-pointer w-[2.5rem] shadow-inner"></label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="w-full flex-1 relative"><canvas id="idvgChart"></canvas></div>
+                    </div>
+
+                    <div class="panel-section shrink-0 flex flex-col gap-3 !p-4">
+                        <div class="grid grid-cols-2 gap-3 text-[0.9em]">
+                            <div class="bg-white dark:bg-black/40 p-2.5 rounded-lg flex justify-between items-center border border-slate-200 dark:border-white/10 shadow-sm"><span class="text-slate-600 dark:text-slate-400 font-medium">SS (擺幅):</span> <span id="metric-ss" class="font-mono text-cyan-700 dark:text-cyan-400 font-bold">60 mV/dec</span></div>
+                            <div class="bg-white dark:bg-black/40 p-2.5 rounded-lg flex justify-between items-center border border-slate-200 dark:border-white/10 shadow-sm"><span class="text-slate-600 dark:text-slate-400 font-medium">gm (轉導):</span> <span id="metric-gm" class="font-mono text-purple-700 dark:text-purple-400 font-bold">0.0 mS</span></div>
+                            <div class="bg-white dark:bg-black/40 p-2.5 rounded-lg flex justify-between items-center border border-slate-200 dark:border-white/10 shadow-sm"><span class="text-slate-600 dark:text-slate-400 font-medium">Ion (導通):</span> <span id="metric-ion" class="font-mono text-amber-600 dark:text-amber-400 font-bold">0.0 mA</span></div>
+                            <div class="bg-white dark:bg-black/40 p-2.5 rounded-lg flex justify-between items-center border border-slate-200 dark:border-white/10 shadow-sm"><span class="text-slate-600 dark:text-slate-400 font-medium">Ioff (漏電):</span> <span id="metric-ioff" class="font-mono text-red-600 dark:text-red-400 font-bold">0.0 nA</span></div>
+                            <div class="bg-indigo-50/80 dark:bg-indigo-900/40 p-2.5 rounded-lg flex justify-between items-center border border-indigo-200 dark:border-indigo-800/50 shadow-sm"><span class="text-slate-600 dark:text-slate-400 font-medium">Cgg (電容):</span> <span id="metric-cgg" class="font-mono text-indigo-700 dark:text-indigo-400 font-bold">0.0 fF</span></div>
+                            <div class="bg-pink-50/80 dark:bg-pink-900/40 p-2.5 rounded-lg flex justify-between items-center border border-pink-200 dark:border-pink-800/50 shadow-sm"><span class="text-slate-600 dark:text-slate-400 font-medium">RC Delay:</span> <span id="metric-delay" class="font-mono text-pink-700 dark:text-pink-400 font-bold">0.0 ps</span></div>
+                        </div>
+                    </div>
+
+                    <div class="panel-section shrink-0 flex flex-col gap-2 border-l-[5px] border-orange-500 py-3 !p-4 bg-orange-50/80 dark:bg-orange-900/20 shadow-inner">
+                        <p id="dynamic-explanation" class="text-[0.9em] text-slate-700 dark:text-slate-300 leading-relaxed m-0"></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 可自由拖曳之參數控制面板 (右側) -->
+            <div id="panel-controls" class="absolute top-20 right-4 lg:top-24 lg:right-8 xl:right-12 glass-panel !rounded-2xl w-[90vw] sm:w-[380px] xl:w-[450px] 2xl:w-[500px] pointer-events-auto shadow-2xl">
+                <div class="drag-handle group">
+                    <div class="flex items-center gap-3 text-slate-600 dark:text-slate-400">
+                        <svg class="w-5 h-5 opacity-60 group-hover:opacity-100 transition-opacity" fill="currentColor" viewBox="0 0 24 24"><path d="M10 9h4V6h3l-5-5-5 5h3v3zm-1 1H6V7l-5 5 5 5v-3h3v-4zm14 2l-5-5v3h-3v4h3v3l5-5zm-9 3h-4v3H7l5 5 5-5h-3v-3z"></path></svg>
+                        <span class="text-[0.95em] font-bold uppercase tracking-wider">操作點與幾何控制</span>
+                    </div>
+                    <button class="toggle-fold p-1.5 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-md text-slate-500 transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg></button>
+                </div>
+
+                <div class="p-4 lg:p-6 flex flex-col gap-4 overflow-y-auto custom-scrollbar max-h-[75vh]">
+                    <div class="grid grid-cols-4 gap-2 shrink-0">
+                        <button id="btn-preset-perf" class="bg-white hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-900/60 border border-slate-200 dark:border-slate-700 rounded-xl py-3 text-[0.8em] text-blue-700 dark:text-blue-300 font-bold transition-all shadow-sm hover:shadow-md hover:border-blue-300 dark:hover:border-blue-600">🚀 高效能</button>
+                        <button id="btn-preset-heat" class="bg-white hover:bg-red-50 dark:bg-slate-800 dark:hover:bg-red-900/60 border border-slate-200 dark:border-slate-700 rounded-xl py-3 text-[0.8em] text-red-700 dark:text-red-300 font-bold transition-all shadow-sm hover:shadow-md hover:border-red-300 dark:hover:border-red-600">🔥 熱衰減</button>
+                        <button id="btn-preset-leak" class="bg-white hover:bg-green-50 dark:bg-slate-800 dark:hover:bg-green-900/60 border border-slate-200 dark:border-slate-700 rounded-xl py-3 text-[0.8em] text-green-700 dark:text-green-300 font-bold transition-all shadow-sm hover:shadow-md hover:border-green-300 dark:hover:border-green-600">💧 看漏電</button>
+                        <button id="btn-preset-var" class="bg-white hover:bg-fuchsia-50 dark:bg-slate-800 dark:hover:bg-fuchsia-900/60 border border-slate-200 dark:border-slate-700 rounded-xl py-3 text-[0.8em] text-fuchsia-700 dark:text-fuchsia-300 font-bold transition-all shadow-sm hover:shadow-md hover:border-fuchsia-300 dark:hover:border-fuchsia-600">🔬 看良率</button>
+                    </div>
+                    
+                    <div class="panel-section flex flex-col gap-5 py-4 !px-5">
+                        <div>
+                            <div class="flex justify-between items-center mb-2"><label class="text-[0.85em] font-bold text-purple-700 dark:text-purple-400">閘極電壓 (Vgs)</label><span id="vgs-val" class="val-badge text-[0.85em]">0.80 V</span></div>
+                            <input type="range" id="vgs-slider" min="-10" max="10" step="0.1" value="0.8">
+                        </div>
+                        <div>
+                            <div class="flex justify-between items-center mb-2"><label class="text-[0.85em] font-bold text-cyan-700 dark:text-cyan-400">汲極電壓 (Vds)</label><span id="vds-val" class="val-badge text-[0.85em]">0.80 V</span></div>
+                            <input type="range" id="vds-slider" min="-10" max="10" step="0.1" value="0.8">
+                        </div>
+                        <div>
+                            <div class="flex justify-between items-center mb-2"><label class="text-[0.85em] font-bold text-orange-700 dark:text-orange-400">元件溫度 (T)</label><span id="temp-val" class="val-badge text-[0.85em]">25°C</span></div>
+                            <input type="range" id="temp-slider" min="25" max="150" value="25">
+                        </div>
+                    </div>
+
+                    <div class="panel-section flex flex-col gap-5 py-4 !px-5">
+                        <div class="flex justify-between items-center border-b border-black/5 dark:border-white/10 pb-3">
+                            <h3 class="text-[0.85em] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">幾何與先進製程參數</h3>
+                            <div class="flex items-center gap-1 group relative">
+                                <span class="text-[0.8em] text-pink-600 font-bold flex items-center">啟用 SCE <span class="tooltip-icon">i</span></span>
+                                <div class="relative inline-block w-9 align-middle select-none ml-2">
+                                    <input type="checkbox" id="sce-toggle" class="toggle-checkbox absolute block w-4 h-4 rounded-full bg-white border-2 appearance-none cursor-pointer" checked/>
+                                    <label for="sce-toggle" class="toggle-label block overflow-hidden h-4 rounded-full cursor-pointer w-[2.25rem]"></label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-fuchsia-50/80 dark:bg-fuchsia-900/20 p-3 -mx-2 rounded-lg border border-fuchsia-200 dark:border-fuchsia-800/50 shadow-sm transition-colors hover:border-fuchsia-300">
+                            <div class="flex justify-between items-center mb-3 group relative">
+                                <label class="text-[0.85em] font-bold text-fuchsia-700 dark:text-fuchsia-400 flex items-center">邊緣粗糙度 (LER) <span class="tooltip-icon">i</span>
+                                    <div class="absolute bottom-full left-0 mb-2 w-64 p-3 bg-slate-800 text-white text-[12px] font-normal rounded-lg shadow-xl hidden group-hover:block z-50 leading-relaxed border border-slate-600">模擬 EUV 微影邊緣粗糙度 (Line Edge Roughness)。數值越高，奈米片厚度越不均勻，造成圖表特性曲線產生雜訊波動與良率下降。</div>
+                                </label>
+                                <span id="ler-val" class="val-badge text-[0.85em]">0 %</span>
+                            </div>
+                            <input type="range" id="ler-slider" min="0" max="100" value="0" class="accent-fuchsia-600">
+                        </div>
+
+                        <div class="flex justify-between items-center mb-1 mt-1">
+                            <label class="text-[0.85em] font-bold text-slate-700 dark:text-slate-300">基板摻雜類型</label>
+                            <select id="sub-type-select" class="text-[0.85em] rounded-md px-3 py-2 border outline-none cursor-pointer shadow-sm focus:ring-2 focus:ring-cyan-500/30 dark:bg-slate-700 font-semibold">
+                                <option value="P-">P- (預設 NMOS, Vth=0.3)</option>
+                                <option value="P+">P+ (高閾值, Vth=0.5)</option>
+                                <option value="N-">N- (低閾值, Vth=0.1)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="bg-indigo-50/80 dark:bg-indigo-900/20 p-3 -mx-2 rounded-lg border border-indigo-200 dark:border-indigo-800/50 mb-1 shadow-sm transition-colors hover:border-indigo-300">
+                            <div class="flex justify-between items-center mb-3">
+                                <label class="text-[0.85em] font-bold text-indigo-700 dark:text-indigo-400">通道傾斜角 (Tilt θ)</label>
+                                <input type="number" id="tilt-input" value="0.00" step="0.01" class="w-24 text-center font-bold text-[0.9em] bg-white dark:bg-slate-800 rounded-md px-2 py-1 border border-indigo-300 dark:border-indigo-700 shadow-inner focus:ring-2 focus:ring-indigo-500/30">
+                            </div>
+                            <div class="tilt-preset-container flex flex-wrap justify-end gap-1.5">
+                                <button class="tilt-preset text-[0.75em] font-bold bg-white text-indigo-700 dark:bg-indigo-800 dark:text-indigo-200 border border-slate-200 dark:border-slate-600 px-3 py-1 rounded-md shadow-sm hover:bg-indigo-50 hover:border-indigo-300 transition-all" data-angle="0">0°</button>
+                                <button class="tilt-preset text-[0.75em] font-bold bg-white text-indigo-700 dark:bg-indigo-800 dark:text-indigo-200 border border-slate-200 dark:border-slate-600 px-3 py-1 rounded-md shadow-sm hover:bg-indigo-50 hover:border-indigo-300 transition-all" data-angle="15">15°</button>
+                                <button class="tilt-preset text-[0.75em] font-bold bg-white text-indigo-700 dark:bg-indigo-800 dark:text-indigo-200 border border-slate-200 dark:border-slate-600 px-3 py-1 rounded-md shadow-sm hover:bg-indigo-50 hover:border-indigo-300 transition-all" data-angle="30">30°</button>
+                                <button class="tilt-preset text-[0.75em] font-bold bg-white text-indigo-700 dark:bg-indigo-800 dark:text-indigo-200 border border-slate-200 dark:border-slate-600 px-3 py-1 rounded-md shadow-sm hover:bg-indigo-50 hover:border-indigo-300 transition-all" data-angle="45">45°</button>
+                                <button class="tilt-preset text-[0.75em] font-bold bg-white text-indigo-700 dark:bg-indigo-800 dark:text-indigo-200 border border-slate-200 dark:border-slate-600 px-3 py-1 rounded-md shadow-sm hover:bg-indigo-50 hover:border-indigo-300 transition-all" data-angle="60">60°</button>
+                                <button class="tilt-preset text-[0.75em] font-bold bg-white text-indigo-700 dark:bg-indigo-800 dark:text-indigo-200 border border-slate-200 dark:border-slate-600 px-3 py-1 rounded-md shadow-sm hover:bg-indigo-50 hover:border-indigo-300 transition-all" data-angle="75">75°</button>
+                                <button class="tilt-preset text-[0.75em] font-bold bg-white text-indigo-700 dark:bg-indigo-800 dark:text-indigo-200 border border-slate-200 dark:border-slate-600 px-3 py-1 rounded-md shadow-sm hover:bg-indigo-50 hover:border-indigo-300 transition-all" data-angle="90">90°</button>
+                            </div>
+                        </div>
+
+                        <div class="bg-yellow-50/80 dark:bg-yellow-500/10 p-3 -mx-2 rounded-lg border border-yellow-200 dark:border-yellow-500/30 mt-1 shadow-sm transition-colors hover:border-yellow-300">
+                            <div class="flex justify-between mb-3 text-[0.85em] text-amber-700 dark:text-amber-500 font-bold tracking-wide">
+                                <span>Gate 長度 (L)</span>
+                                <span>高度 (H)</span>
+                                <span>寬度 (W)</span>
+                            </div>
+                            <div class="flex gap-4">
+                                <input type="range" id="gate-l-slider" min="0.2" max="2.0" step="0.1" value="1.0" title="Gate Length">
+                                <input type="range" id="gate-h-slider" min="0.5" max="2.0" step="0.1" value="1.0" title="Gate Height">
+                                <input type="range" id="gate-w-slider" min="0.5" max="2.0" step="0.1" value="1.0" title="Gate Width">
+                            </div>
+                        </div>
+
+                        <div class="mt-2">
+                            <div class="flex justify-between mb-3 text-[0.8em] text-cyan-700 dark:text-cyan-400 font-bold tracking-wide items-center">
+                                <span>Source 長度</span>
+                                <label class="flex items-center gap-2 cursor-pointer bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 px-3 py-1.5 rounded-lg shadow-sm transition-all hover:border-cyan-400 hover:bg-cyan-50 dark:hover:bg-cyan-900/50">
+                                    <input type="checkbox" id="sync-sd" checked class="accent-cyan-600 w-4 h-4 cursor-pointer"> 🔗 同步對稱
+                                </label>
+                                <span>Drain 長度</span>
+                            </div>
+                            <div class="flex gap-6 mt-4">
+                                <input type="range" id="source-l-slider" min="0.5" max="2.0" step="0.1" value="1.0">
+                                <input type="range" id="drain-l-slider" min="0.5" max="2.0" step="0.1" value="1.0">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= 第 3 頁：參考公式 ================= -->
+        <div id="page-formula" class="absolute inset-0 transition-opacity duration-500 pointer-events-none opacity-0 z-0 invisible flex items-center justify-center p-4 lg:p-10">
+            <div class="glass-panel w-full max-w-6xl 2xl:max-w-7xl h-[85vh] rounded-3xl pointer-events-auto p-6 lg:p-12 flex flex-col overflow-y-auto custom-scrollbar shadow-2xl">
+                <h1 class="text-3xl lg:text-4xl 2xl:text-5xl font-black mb-8 text-slate-800 dark:text-white border-b border-slate-200 dark:border-slate-700 pb-5 tracking-wide">理論與先進物理引擎推導</h1>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8 2xl:gap-10">
+                    <div class="panel-section bg-blue-50/80 dark:bg-blue-900/30 border-blue-200 dark:border-blue-800/60 shadow-sm rounded-2xl">
+                        <h2 class="text-xl font-bold text-blue-700 dark:text-blue-400 mb-5 flex items-center">汲極電流 (Drain Current, I<sub>d</sub>)</h2>
+                        <div class="bg-white/90 dark:bg-slate-900/80 p-5 rounded-xl font-mono text-[0.95em] mb-5 shadow-sm border border-slate-200 dark:border-slate-700 transition-colors hover:border-blue-400">
+                            <div class="text-slate-500 dark:text-slate-400 text-[0.85em] mb-2 font-sans font-bold">線性區 (Linear Region): <span class="math-font text-slate-700 dark:text-slate-300">V<sub>ds</sub> &lt; V<sub>gs</sub> - V<sub>th</sub></span></div>
+                            <span class="math-font text-blue-700 dark:text-blue-300 font-semibold block text-center text-xl mt-3 mb-2">I<sub>d</sub> = μ<sub>n</sub>C<sub>ox</sub>(W/L)[(V<sub>gs</sub>-V<sub>th</sub>)V<sub>ds</sub> - 1/2 V<sub>ds</sub><sup>2</sup>]</span>
+                        </div>
+                        <div class="bg-white/90 dark:bg-slate-900/80 p-5 rounded-xl font-mono text-[0.95em] shadow-sm border border-slate-200 dark:border-slate-700 transition-colors hover:border-purple-400">
+                            <div class="text-slate-500 dark:text-slate-400 text-[0.85em] mb-2 font-sans font-bold">飽和區 (Saturation Region): <span class="math-font text-slate-700 dark:text-slate-300">V<sub>ds</sub> &ge; V<sub>gs</sub> - V<sub>th</sub></span></div>
+                            <span class="math-font text-purple-700 dark:text-purple-300 font-semibold block text-center text-xl mt-3 mb-2">I<sub>d</sub> = 1/2 μ<sub>n</sub>C<sub>ox</sub>(W/L)(V<sub>gs</sub>-V<sub>th</sub>)<sup>2</sup></span>
+                        </div>
+                        <div class="text-right text-[0.75em] text-slate-400 dark:text-slate-500 mt-4 font-medium">來源: Sze S.M., Physics of Semiconductor Devices (John Wiley & Sons)</div>
+                    </div>
+                    
+                    <div class="panel-section bg-pink-50/80 dark:bg-pink-900/30 border-pink-200 dark:border-pink-800/60 shadow-sm rounded-2xl">
+                        <h2 class="text-xl font-bold text-pink-700 dark:text-pink-400 mb-5 flex items-center">短通道效應與量子極限</h2>
+                        <div class="bg-white/90 dark:bg-slate-900/80 p-5 rounded-xl text-[0.95em] mb-5 shadow-sm border border-slate-200 dark:border-slate-700 transition-colors hover:border-pink-400">
+                            <strong class="text-slate-800 dark:text-slate-200 text-[1.05em] block mb-3">1. DIBL (汲極誘發障壁降低)</strong>
+                            <span class="math-font text-pink-700 dark:text-pink-300 font-semibold block text-center text-xl mb-2">V<sub>th(eff)</sub> = V<sub>th0</sub> - η·V<sub>ds</sub>·(1/L)</span>
+                        </div>
+                        <div class="bg-white/90 dark:bg-slate-900/80 p-5 rounded-xl text-[0.95em] shadow-sm border border-slate-200 dark:border-slate-700 transition-colors hover:border-pink-400">
+                            <strong class="text-slate-800 dark:text-slate-200 text-[1.05em] block mb-3">2. BTBT (能帶對能帶穿隧)</strong>
+                            <span class="math-font text-pink-700 dark:text-pink-300 font-semibold block text-center text-xl">I<sub>BTBT</sub> &propto; exp(-A / E<sub>max</sub>)</span>
+                            <p class="text-[0.85em] text-slate-500 dark:text-slate-400 mt-4 text-center leading-relaxed">當 Gate Length 縮小至極限 (L &lt; 0.4 nm)，載子發生量子力學機率穿隧，導致漏電流無法以電壓關斷。</p>
+                        </div>
+                        <div class="text-right text-[0.75em] text-slate-400 dark:text-slate-500 mt-4 font-medium">來源: Wikipedia - Quantum Tunnelling, IEEE TED (Short-Channel Effects)</div>
+                    </div>
+                    
+                    <div class="panel-section bg-indigo-50/80 dark:bg-indigo-900/30 border-indigo-200 dark:border-indigo-800/60 shadow-sm rounded-2xl md:col-span-2">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8">
+                            <div>
+                                <h2 class="text-xl font-bold text-indigo-700 dark:text-indigo-400 mb-5">寄生電容與 RC 延遲</h2>
+                                <div class="bg-white/90 dark:bg-slate-900/80 p-6 rounded-xl font-mono text-[0.95em] shadow-sm border border-slate-200 dark:border-slate-700 h-full flex flex-col justify-center transition-colors hover:border-indigo-400">
+                                    <span class="math-font text-indigo-700 dark:text-indigo-300 font-semibold block text-center text-[1.3em] mb-5">C<sub>gg</sub> &approx; C<sub>ox</sub>·W<sub>eff</sub>·L<sub>gate</sub> + C<sub>fringe</sub></span>
+                                    <span class="math-font text-pink-700 dark:text-pink-400 font-semibold block text-center text-[1.3em]">Delay τ = (C<sub>gg</sub>·V<sub>dd</sub>) / I<sub>on</sub></span>
+                                    <div class="text-center text-[0.85em] text-slate-500 dark:text-slate-400 mt-6 font-sans leading-relaxed">GAA 結構增加導通面積的同時，亦伴隨多面寄生電容 (Fringe Capacitance) 增加的嚴峻挑戰。</div>
+                                </div>
+                            </div>
+                            <div>
+                                <h2 class="text-xl font-bold text-green-700 dark:text-green-400 mb-5">次臨界區 (Subthreshold)</h2>
+                                <div class="bg-white/90 dark:bg-slate-900/80 p-6 rounded-xl font-mono text-[0.95em] shadow-sm border border-slate-200 dark:border-slate-700 h-full flex flex-col justify-center transition-colors hover:border-green-400">
+                                    <span class="math-font text-green-700 dark:text-green-300 font-semibold block text-center text-[1.5em] mb-5">I<sub>sub</sub> &propto; 10<sup>(V<sub>gs</sub>-V<sub>th</sub>)/SS</sup></span>
+                                    <div class="text-center text-[0.9em] text-slate-500 dark:text-slate-400 mt-4 font-sans leading-relaxed">GAAFET 終極優勢在於全包覆閘極能將次臨界擺幅 (Subthreshold Swing, SS) 完美逼近室溫理想物理極限 <strong class="text-slate-800 dark:text-slate-200 text-[1.1em]">60 mV/dec</strong>，為先進製程對抗漏電的最佳解。</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= 第 4 頁：文獻與來源 ================= -->
+        <div id="page-references" class="absolute inset-0 transition-opacity duration-500 pointer-events-none opacity-0 z-0 invisible flex items-center justify-center p-4 lg:p-10">
+            <div class="glass-panel w-full max-w-6xl 2xl:max-w-7xl h-[85vh] rounded-3xl pointer-events-auto p-6 lg:p-12 flex flex-col shadow-2xl">
+                <h1 class="text-3xl lg:text-4xl 2xl:text-5xl font-black mb-4 text-slate-800 dark:text-white flex items-center gap-4 tracking-wide">
+                    <svg class="w-10 h-10 lg:w-12 lg:h-12 text-blue-600 dark:text-blue-400 drop-shadow-md" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
+                    權威文獻與真實數據來源
+                </h1>
+                <p class="text-[1.05em] text-slate-500 dark:text-slate-400 mb-6 border-b border-slate-200 dark:border-slate-700 pb-6 leading-relaxed">本 TCAD 互動模型之幾何結構、電學推導與物理現象，皆嚴格基於以下半導體工業界公開資料與頂尖學術文獻所建構。</p>
+                
+                <div class="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-8 pr-4 pb-10">
+                    
+                    <!-- 分類 1: 權威機構與晶圓代工廠 -->
+                    <div>
+                        <h3 class="text-2xl font-bold text-indigo-700 dark:text-indigo-400 mb-5 flex items-center gap-3">
+                            <span class="w-2.5 h-7 bg-indigo-500 rounded-full shadow-md"></span> 權威機構與製程節點
+                        </h3>
+                        <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+                            <a href="https://en.wikipedia.org/wiki/2_nm_process" target="_blank" class="ref-card block p-5 rounded-xl shadow-sm">
+                                <div class="flex justify-between items-start mb-3">
+                                    <h4 class="text-[1.1em] font-bold text-slate-800 dark:text-slate-200 leading-tight">TSMC N2 Technology (2nm Node)</h4>
+                                    <span class="text-[0.75em] bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-200 px-3 py-1 rounded-md font-bold whitespace-nowrap shadow-sm">Wikipedia</span>
+                                </div>
+                                <p class="text-[0.9em] text-slate-600 dark:text-slate-400 leading-relaxed">台積電 2 奈米世代技術專頁，確立 Nanosheet 結構作為先進製程之基礎標準。</p>
+                            </a>
+                            <a href="https://en.wikipedia.org/wiki/3_nm_process" target="_blank" class="ref-card block p-5 rounded-xl shadow-sm">
+                                <div class="flex justify-between items-start mb-3">
+                                    <h4 class="text-[1.1em] font-bold text-slate-800 dark:text-slate-200 leading-tight">Samsung 3nm Process Technology (GAA)</h4>
+                                    <span class="text-[0.75em] bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200 px-3 py-1 rounded-md font-bold whitespace-nowrap shadow-sm">Wikipedia</span>
+                                </div>
+                                <p class="text-[0.9em] text-slate-600 dark:text-slate-400 leading-relaxed">三星半導體技術介紹，闡述其 MBCFET 架構調整 Nanosheet 寬度控制電流的優勢。</p>
+                            </a>
+                            <a href="https://en.wikipedia.org/wiki/Intel_20A" target="_blank" class="ref-card block p-5 rounded-xl shadow-sm">
+                                <div class="flex justify-between items-start mb-3">
+                                    <h4 class="text-[1.1em] font-bold text-slate-800 dark:text-slate-200 leading-tight">Intel Silicon Innovations & RibbonFET</h4>
+                                    <span class="text-[0.75em] bg-sky-100 text-cyan-700 dark:bg-sky-900/50 dark:text-cyan-200 px-3 py-1 rounded-md font-bold whitespace-nowrap shadow-sm">Wikipedia</span>
+                                </div>
+                                <p class="text-[0.9em] text-slate-600 dark:text-slate-400 leading-relaxed">Intel 官方矽創新里程碑，揭示 RibbonFET (Intel 版 GAA) 對抗漏電的關鍵技術。</p>
+                            </a>
+                            <a href="https://en.wikipedia.org/wiki/Extreme_ultraviolet_lithography" target="_blank" class="ref-card block p-5 rounded-xl shadow-sm">
+                                <div class="flex justify-between items-start mb-3">
+                                    <h4 class="text-[1.1em] font-bold text-slate-800 dark:text-slate-200 leading-tight">EUV Lithography (極紫外光微影)</h4>
+                                    <span class="text-[0.75em] bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-200 px-3 py-1 rounded-md font-bold whitespace-nowrap shadow-sm">Wikipedia</span>
+                                </div>
+                                <p class="text-[0.9em] text-slate-600 dark:text-slate-400 leading-relaxed">應用材料公司對於奈米片設備製造挑戰的解析，支援本模型 LER 模擬之合理性。</p>
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- 分類 2: 學術期刊與 IEEE 論文 -->
+                    <div>
+                        <h3 class="text-2xl font-bold text-cyan-700 dark:text-cyan-400 mb-5 flex items-center gap-3">
+                            <span class="w-2.5 h-7 bg-cyan-500 rounded-full shadow-md"></span> 學術期刊與技術雜誌
+                        </h3>
+                        <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+                            <a href="https://spectrum.ieee.org/semiconductors" target="_blank" class="ref-card block p-5 rounded-xl shadow-sm">
+                                <div class="flex justify-between items-start mb-3">
+                                    <h4 class="text-[1.1em] font-bold text-slate-800 dark:text-slate-200 leading-tight">The Nanosheet Transistor Is the Next Step in Moore’s Law</h4>
+                                    <span class="text-[0.75em] bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200 px-3 py-1 rounded-md font-bold whitespace-nowrap shadow-sm">IEEE Spectrum</span>
+                                </div>
+                                <p class="text-[0.9em] text-slate-600 dark:text-slate-400 leading-relaxed">探討 GAA 結構如何解決 FinFET 短通道效應物理瓶頸，為 SCE 開關的核心理論。</p>
+                            </a>
+                            <a href="https://www.nature.com/subjects/nanoelectronics" target="_blank" class="ref-card block p-5 rounded-xl shadow-sm">
+                                <div class="flex justify-between items-start mb-3">
+                                    <h4 class="text-[1.1em] font-bold text-slate-800 dark:text-slate-200 leading-tight">Evolution of logic electronics from planar to sub-nanometer</h4>
+                                    <span class="text-[0.75em] bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-200 px-3 py-1 rounded-md font-bold whitespace-nowrap shadow-sm">Nature</span>
+                                </div>
+                                <p class="text-[0.9em] text-slate-600 dark:text-slate-400 leading-relaxed">頂尖期刊對次奈米節點的全面回顧，提供宏觀的微縮物理視角與未來材料推測。</p>
+                            </a>
+                            <a href="https://en.wikipedia.org/wiki/Drain-induced_barrier_lowering" target="_blank" class="ref-card block p-5 rounded-xl shadow-sm">
+                                <div class="flex justify-between items-start mb-3">
+                                    <h4 class="text-[1.1em] font-bold text-slate-800 dark:text-slate-200 leading-tight">Drain-Induced Barrier Lowering (DIBL)</h4>
+                                    <span class="text-[0.75em] bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200 px-3 py-1 rounded-md font-bold whitespace-nowrap shadow-sm">Physics</span>
+                                </div>
+                                <p class="text-[0.9em] text-slate-600 dark:text-slate-400 leading-relaxed">詳細量化 DIBL 效應的數學衰減模型，應用於本系統小於 1nm 的閾值下降模擬。</p>
+                            </a>
+                            <a href="https://en.wikipedia.org/wiki/Velocity_saturation" target="_blank" class="ref-card block p-5 rounded-xl shadow-sm">
+                                <div class="flex justify-between items-start mb-3">
+                                    <h4 class="text-[1.1em] font-bold text-slate-800 dark:text-slate-200 leading-tight">Carrier Velocity Saturation</h4>
+                                    <span class="text-[0.75em] bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200 px-3 py-1 rounded-md font-bold whitespace-nowrap shadow-sm">Physics</span>
+                                </div>
+                                <p class="text-[0.9em] text-slate-600 dark:text-slate-400 leading-relaxed">解釋當電場過高時電子速度受限的物理現象，為短通道電流衰減公式基礎。</p>
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- 分類 3: 半導體物理與科普文獻 -->
+                    <div>
+                        <h3 class="text-2xl font-bold text-purple-700 dark:text-purple-400 mb-5 flex items-center gap-3">
+                            <span class="w-2.5 h-7 bg-purple-500 rounded-full shadow-md"></span> 半導體物理與科普百科 (Physics & Educations)
+                        </h3>
+                        <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+                            <a href="https://en.wikipedia.org/wiki/Multigate_device" target="_blank" class="ref-card block p-5 rounded-xl shadow-sm">
+                                <div class="flex justify-between items-start mb-3">
+                                    <h4 class="text-[1.1em] font-bold text-slate-800 dark:text-slate-200 leading-tight">Multigate device (GAAFET)</h4>
+                                    <span class="text-[0.75em] bg-gray-200 text-gray-700 dark:bg-gray-700/80 dark:text-gray-200 px-3 py-1 rounded-md font-bold whitespace-nowrap shadow-sm">Wikipedia</span>
+                                </div>
+                                <p class="text-[0.9em] text-slate-600 dark:text-slate-400 leading-relaxed">多閘極元件發展史，協助定義介面專有名詞及提供背景科普。</p>
+                            </a>
+                            <a href="https://en.wikipedia.org/wiki/Short-channel_effect" target="_blank" class="ref-card block p-5 rounded-xl shadow-sm">
+                                <div class="flex justify-between items-start mb-3">
+                                    <h4 class="text-[1.1em] font-bold text-slate-800 dark:text-slate-200 leading-tight">Short-channel effect (SCE)</h4>
+                                    <span class="text-[0.75em] bg-gray-200 text-gray-700 dark:bg-gray-700/80 dark:text-gray-200 px-3 py-1 rounded-md font-bold whitespace-nowrap shadow-sm">Wikipedia</span>
+                                </div>
+                                <p class="text-[0.9em] text-slate-600 dark:text-slate-400 leading-relaxed">包含漏電流等各種非理想短通道效應的完整物理定義。</p>
+                            </a>
+                            <a href="https://en.wikipedia.org/wiki/Line_edge_roughness" target="_blank" class="ref-card block p-5 rounded-xl shadow-sm">
+                                <div class="flex justify-between items-start mb-3">
+                                    <h4 class="text-[1.1em] font-bold text-slate-800 dark:text-slate-200 leading-tight">Line edge roughness (LER)</h4>
+                                    <span class="text-[0.75em] bg-gray-200 text-gray-700 dark:bg-gray-700/80 dark:text-gray-200 px-3 py-1 rounded-md font-bold whitespace-nowrap shadow-sm">Wikipedia</span>
+                                </div>
+                                <p class="text-[0.9em] text-slate-600 dark:text-slate-400 leading-relaxed">解釋光刻技術極限邊緣不平整對奈米結構造成的變異與良率挑戰。</p>
+                            </a>
+                            <a href="https://en.wikipedia.org/wiki/Quantum_tunnelling" target="_blank" class="ref-card block p-5 rounded-xl shadow-sm">
+                                <div class="flex justify-between items-start mb-3">
+                                    <h4 class="text-[1.1em] font-bold text-slate-800 dark:text-slate-200 leading-tight">Quantum tunnelling (BTBT)</h4>
+                                    <span class="text-[0.75em] bg-gray-200 text-gray-700 dark:bg-gray-700/80 dark:text-gray-200 px-3 py-1 rounded-md font-bold whitespace-nowrap shadow-sm">Wikipedia</span>
+                                </div>
+                                <p class="text-[0.9em] text-slate-600 dark:text-slate-400 leading-relaxed">量子穿隧效應科普，為通道微縮至原子等級時必定面臨的極限漏電現象。</p>
+                            </a>
+                            <a href="https://en.wikipedia.org/wiki/MOSFET" target="_blank" class="ref-card block p-5 rounded-xl shadow-sm">
+                                <div class="flex justify-between items-start mb-3">
+                                    <h4 class="text-[1.1em] font-bold text-slate-800 dark:text-slate-200 leading-tight">MOSFET Physics & Operation</h4>
+                                    <span class="text-[0.75em] bg-gray-200 text-gray-700 dark:bg-gray-700/80 dark:text-gray-200 px-3 py-1 rounded-md font-bold whitespace-nowrap shadow-sm">Wikipedia</span>
+                                </div>
+                                <p class="text-[0.9em] text-slate-600 dark:text-slate-400 leading-relaxed">金氧半場效電晶體的基本運作原理、Id-Vd 與 Id-Vg 理論曲線方程式。</p>
+                            </a>
+                            <a href="https://en.wikipedia.org/wiki/Subthreshold_conduction" target="_blank" class="ref-card block p-5 rounded-xl shadow-sm">
+                                <div class="flex justify-between items-start mb-3">
+                                    <h4 class="text-[1.1em] font-bold text-slate-800 dark:text-slate-200 leading-tight">Subthreshold conduction & Swing</h4>
+                                    <span class="text-[0.75em] bg-gray-200 text-gray-700 dark:bg-gray-700/80 dark:text-gray-200 px-3 py-1 rounded-md font-bold whitespace-nowrap shadow-sm">Wikipedia</span>
+                                </div>
+                                <p class="text-[0.9em] text-slate-600 dark:text-slate-400 leading-relaxed">介紹次臨界擺幅 (Subthreshold Swing) 極限值為 60 mV/dec 之推導過程。</p>
+                            </a>
+                            <a href="https://en.wikipedia.org/wiki/FinFET" target="_blank" class="ref-card block p-5 rounded-xl shadow-sm">
+                                <div class="flex justify-between items-start mb-3">
+                                    <h4 class="text-[1.1em] font-bold text-slate-800 dark:text-slate-200 leading-tight">FinFET (Fin Field-Effect Transistor)</h4>
+                                    <span class="text-[0.75em] bg-gray-200 text-gray-700 dark:bg-gray-700/80 dark:text-gray-200 px-3 py-1 rounded-md font-bold whitespace-nowrap shadow-sm">Wikipedia</span>
+                                </div>
+                                <p class="text-[0.9em] text-slate-600 dark:text-slate-400 leading-relaxed">GAA 的前一代主流技術，幫助比對三面包覆與四面環繞(GAA)的漏電抑制差異。</p>
+                            </a>
+                            <a href="https://en.wikipedia.org/wiki/Technology_CAD" target="_blank" class="ref-card block p-5 rounded-xl shadow-sm">
+                                <div class="flex justify-between items-start mb-3">
+                                    <h4 class="text-[1.1em] font-bold text-slate-800 dark:text-slate-200 leading-tight">Technology CAD (TCAD)</h4>
+                                    <span class="text-[0.75em] bg-gray-200 text-gray-700 dark:bg-gray-700/80 dark:text-gray-200 px-3 py-1 rounded-md font-bold whitespace-nowrap shadow-sm">Wikipedia</span>
+                                </div>
+                                <p class="text-[0.9em] text-slate-600 dark:text-slate-400 leading-relaxed">介紹業界常用來模擬電晶體製程與非理想物理特性的數值模型概念軟體。</p>
+                            </a>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 核心互動與 3D 邏輯 -->
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // 全域物理變數移至頂部宣告，解決 Chart.js 初始化 ReferenceError
+        let isLightMode = false; // 預設黑夜模式
+        const baseNanosheetNm = 12;
+        let VTH_BASE = 0.3, thermalCoeff = 1.5, gateH_ratio = 1.0, gateW_ratio = 1.0, gateL_ratio = 1.0, isSCEEnabled = true, currentVthEff = VTH_BASE; 
+        let processVariation = 0; 
+        const K_CONST = 150; 
+        let currentSpeed = 0, temperature = 25, vgs = 0.8, vds = 0.8, isLogScale = false, syncSD = true, tiltAngle = 0;
+        let chartUpdateTimer = null; // 節流用定時器
+
+        // 安全的事件綁定機制
+        function safeAddListener(id, event, handler) {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener(event, handler);
+        }
+
+        function safeSetValue(id, value) {
+            const el = document.getElementById(id);
+            if (el) el.value = value;
+        }
+
+        // --- 1. 面板拖曳與摺疊邏輯 ---
+        function makeDraggable(panelId) {
+            const panel = document.getElementById(panelId);
+            if (!panel) return;
+            const handle = panel.querySelector('.drag-handle');
+            const toggleBtn = panel.querySelector('.toggle-fold');
+            let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+
+            if (handle) {
+                handle.onmousedown = (e) => { e.preventDefault(); pos3 = e.clientX; pos4 = e.clientY; document.onmouseup = closeDrag; document.onmousemove = drag; };
+                handle.ontouchstart = (e) => { if(e.target.closest('button') || e.target.closest('input') || e.target.closest('select')) return; pos3 = e.touches[0].clientX; pos4 = e.touches[0].clientY; document.ontouchend = closeDrag; document.ontouchmove = touchDrag; };
+                if(toggleBtn) {
+                    toggleBtn.onclick = (e) => {
+                        e.stopPropagation(); panel.classList.toggle('minimized-panel');
+                        toggleBtn.innerHTML = panel.classList.contains('minimized-panel') 
+                            ? `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path></svg>`
+                            : `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>`;
+                    };
+                }
+            }
+            function drag(e) { e.preventDefault(); pos1 = pos3 - e.clientX; pos2 = pos4 - e.clientY; pos3 = e.clientX; pos4 = e.clientY; updatePos(); }
+            function touchDrag(e) { pos1 = pos3 - e.touches[0].clientX; pos2 = pos4 - e.touches[0].clientY; pos3 = e.touches[0].clientX; pos4 = e.touches[0].clientY; updatePos(); }
+            function updatePos() { panel.style.bottom = 'auto'; panel.style.right = 'auto'; panel.style.top = Math.max(0, (panel.offsetTop - pos2)) + "px"; panel.style.left = Math.max(0, (panel.offsetLeft - pos1)) + "px"; }
+            function closeDrag() { document.onmouseup = null; document.onmousemove = null; document.ontouchend = null; document.ontouchmove = null; }
+        }
+        
+        document.addEventListener("DOMContentLoaded", () => {
+            makeDraggable('panel-charts'); 
+            makeDraggable('panel-controls');
+        });
+
+        // --- 3D 場景與攝影機 ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x050505, 0.02); // 預設黑夜霧氣
+        
+        const aspect = window.innerWidth / window.innerHeight;
+        const camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 1000);
+        
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); 
+        renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.2;
+        container.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true; controls.dampingFactor = 0.05; controls.maxPolarAngle = Math.PI / 2 + 0.1; controls.minDistance = 8; controls.maxDistance = 40;
+
+        // 獨立座標軸
+        const axesContainer = document.getElementById('axes-inset');
+        const axesRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+        axesRenderer.setSize(axesContainer.clientWidth, axesContainer.clientHeight);
+        axesContainer.appendChild(axesRenderer.domElement);
+        const axesScene = new THREE.Scene();
+        const axesCamera = new THREE.PerspectiveCamera(50, 1, 0.1, 10);
+        const axesHelper = new THREE.AxesHelper(3.5); 
+        axesScene.add(axesHelper);
+
+        // 光源 (預設黑夜光源更立體)
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1.5); scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 3.0); dirLight.position.set(5, 12, 8); dirLight.castShadow = true; dirLight.shadow.mapSize.width = 2048; dirLight.shadow.mapSize.height = 2048; scene.add(dirLight);
+        const pointLight = new THREE.PointLight(0x00ffff, 1, 12); pointLight.position.set(0, 2, 0); scene.add(pointLight);
+
+        // --- 建立 GAA 元件幾何體 ---
+        const components = [];
+        const subGeo = new THREE.BoxGeometry(18, 0.6, 12);
+        const subMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9, metalness: 0.1 });
+        const substrate = new THREE.Mesh(subGeo, subMat); substrate.position.y = -0.3; substrate.receiveShadow = true; scene.add(substrate);
+
+        // 強化網格可視度 (Dark mode default)
+        const gridHelper = new THREE.GridHelper(18, 18, 0x0ea5e9, 0x64748b); gridHelper.position.y = 0.01; gridHelper.material.transparent = true; gridHelper.material.opacity = 0.5; scene.add(gridHelper);
+
+        const stiGeo = new THREE.BoxGeometry(14, 0.2, 7);
+        const stiMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.9, metalness: 0.1 });
+        const sti = new THREE.Mesh(stiGeo, stiMat); sti.position.y = 0.1; sti.receiveShadow = true; scene.add(sti);
+
+        const sdMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.4, metalness: 0.6 }); components.push(sdMat);
+        const sourceGeo = new THREE.BoxGeometry(2, 4.5, 4);
+        const sourceMesh = new THREE.Mesh(sourceGeo, sdMat); sourceMesh.castShadow = true; sourceMesh.receiveShadow = true; scene.add(sourceMesh);
+        const drainMesh = new THREE.Mesh(sourceGeo, sdMat); drainMesh.castShadow = true; drainMesh.receiveShadow = true; scene.add(drainMesh);
+
+        // 傾斜通道群組
+        const activeRegionGroup = new THREE.Group();
+        activeRegionGroup.position.y = 2.4; 
+        scene.add(activeRegionGroup);
+
+        const channelMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.3, metalness: 0.5 }); components.push(channelMat);
+        const segmentsCount = 12; const segmentWidth = 6 / segmentsCount;
+        const channelSegGeo = new THREE.BoxGeometry(segmentWidth, 0.3, 2.5);
+        const sheetRows = []; const channelMeshes = [];
+
+        const sheetYOffsets = [-1.2, 0, 1.2];
+        sheetYOffsets.forEach(yOffset => {
+            const rowGroup = new THREE.Group();
+            rowGroup.position.set(0, yOffset, 0);
+            for(let i=0; i<segmentsCount; i++) {
+                const seg = new THREE.Mesh(channelSegGeo, channelMat);
+                seg.position.x = -3 + segmentWidth/2 + i*segmentWidth;
+                seg.castShadow = true;
+                rowGroup.add(seg); channelMeshes.push(seg);
+            }
+            activeRegionGroup.add(rowGroup); sheetRows.push(rowGroup);
+        });
+
+        // Gate 獨立於群組
+        const gateMat = new THREE.MeshPhysicalMaterial({ color: 0xd97706, metalness: 0.8, roughness: 0.3, transmission: 0.2, transparent: true, opacity: 1, ior: 1.5, thickness: 2 }); components.push(gateMat);
+        const gateGeo = new THREE.BoxGeometry(2.5, 5, 4.5);
+        const gateMesh = new THREE.Mesh(gateGeo, gateMat); gateMesh.castShadow = true;
+        const edges = new THREE.EdgesGeometry(gateGeo);
+        const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xfcb314, transparent: true, opacity: 0.6 }));
+        gateMesh.add(line); scene.add(gateMesh); 
+
+        const particleCount = 300; const particlesGeo = new THREE.BufferGeometry(); const posArray = new Float32Array(particleCount * 3);
+        for(let i = 0; i < particleCount; i++) {
+            posArray[i*3] = (Math.random() - 0.5) * 8; 
+            posArray[i*3+1] = sheetYOffsets[Math.floor(Math.random() * 3)] + (Math.random() - 0.5) * 0.2;
+            posArray[i*3+2] = (Math.random() - 0.5) * 2.3;
+        }
+        particlesGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+        const particlesMat = new THREE.PointsMaterial({ size: 0.15, color: 0x06b6d4, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false });
+        const particleSystem = new THREE.Points(particlesGeo, particlesMat);
+        activeRegionGroup.add(particleSystem); 
+
+
+        // --- 5. 物理引擎與 Chart.js 圖表 ---
+        // 依照 RWD 字體調整
+        Chart.defaults.color = '#cbd5e1'; Chart.defaults.borderColor = 'rgba(255,255,255,0.15)'; 
+        Chart.defaults.font.size = window.innerWidth > 2000 ? 16 : (window.innerWidth > 768 ? 13 : 11); 
+        Chart.defaults.font.family = '-apple-system, sans-serif';
+        
+        function calculateId(vgs, vds, temp, addNoise=false) {
+            let actualVgs = vgs; let actualVds = vds; let reverse = false;
+            if (vds < 0) { actualVgs = vgs - vds; actualVds = -vds; reverse = true; }
+
+            let mobility = Math.pow((temp + 273.15) / 298.15, -thermalCoeff); 
+            const geoFactor = (gateW_ratio * gateH_ratio) / gateL_ratio; 
+            let vth_eff = VTH_BASE; let btbt_leakage = 0;
+
+            if (isSCEEnabled) { 
+                vth_eff = VTH_BASE - 0.15 * actualVds * (1 / gateL_ratio); 
+                mobility = mobility / (1 + actualVds / (gateL_ratio * 2)); 
+                if (gateL_ratio <= 0.4) btbt_leakage = 0.00015 * Math.exp(5.0 * (0.4 - gateL_ratio)); 
+            }
+            if(!reverse) currentVthEff = vth_eff; 
+
+            let id = 0;
+            if (actualVgs <= vth_eff) { 
+                const ss_factor = isSCEEnabled ? (1 + 0.3 / gateL_ratio) : 1;
+                id = 0.0001 * geoFactor * Math.pow(10, (actualVgs - vth_eff) / (0.06 * ss_factor));
+            } else {
+                const vov = actualVgs - vth_eff; 
+                id = (actualVds < vov) ? K_CONST * geoFactor * mobility * (vov - actualVds / 2) * actualVds : K_CONST * geoFactor * mobility * 0.5 * vov * vov;
+            }
+            id += btbt_leakage; 
+            if (addNoise && processVariation > 0) id *= (1.0 + (Math.random() - 0.5) * (processVariation / 100) * 0.3);
+            
+            const finalId = Math.max(1e-6, id);
+            return reverse ? -finalId : finalId;
+        }
+
+        const ctxVd = document.getElementById('idvdChart').getContext('2d'); const ctxVg = document.getElementById('idvgChart').getContext('2d');
+        
+        function generateIdVdCurves(temp) {
+            const vdsPoints = [];
+            for (let v = -10; v <= 10; v += 0.25) vdsPoints.push(v);
+            return [2.0, 5.0, 10.0].map((vg, idx) => ({ 
+                label: `Vgs=${vg}V`, data: vdsPoints.map(vd => ({ x: vd, y: calculateId(vg, vd, temp, true) })),
+                borderColor: ['#94a3b8', '#64748b', '#475569'][idx], borderWidth: 2, pointRadius: 0, showLine: true, tension: 0.1 
+            }));
+        }
+        
+        const sharedChartOptions = { 
+            responsive: true, maintainAspectRatio: false, 
+            plugins: { 
+                legend: { display: false }, 
+                tooltip: { backgroundColor: 'rgba(15, 20, 30, 0.95)', titleColor: '#ffffff', bodyColor: '#ffffff', borderColor: 'rgba(255,255,255,0.15)', borderWidth: 1, padding: 8, cornerRadius: 6,
+                    callbacks: { label: c => `${c.dataset.label || ''} : V=${c.parsed.x.toFixed(2)}V, Id=${c.parsed.y.toExponential(2)}mA` } } 
+            }, 
+            interaction: { mode: 'nearest', intersect: true }, 
+            animation: { duration: 0 } 
+        };
+        
+        const idvdChart = new Chart(ctxVd, { 
+            type: 'scatter', 
+            data: { datasets: [ ...generateIdVdCurves(25), { label: '操作點', data: [{x: 0.8, y: calculateId(0.8, 0.8, 25)}], backgroundColor: '#0ea5e9', borderColor: '#ffffff', borderWidth: 2, pointRadius: 6, showLine: false, order: -1 } ] }, 
+            options: { ...sharedChartOptions, scales: { 
+                x: { type: 'linear', min: -10, max: 10, title: {display: true, text: 'VDS (V)'}, grid: { color: 'rgba(255,255,255,0.15)' } }, 
+                y: { type: 'linear', title: {display: true, text: 'ID (mA)'}, grid: { color: 'rgba(255,255,255,0.15)' } } 
+            } } 
+        });
+        
+        const idvgChart = new Chart(ctxVg, { 
+            type: 'scatter', 
+            data: { datasets: [ { label: 'Id-Vg', data: [], borderColor: '#a855f7', borderWidth: 2, pointRadius: 0, showLine: true, tension: 0.1 }, { label: '操作點', data: [{x: 0.8, y: calculateId(0.8, 0.8, 25)}], backgroundColor: '#0ea5e9', borderColor: '#ffffff', borderWidth: 2, pointRadius: 6, showLine: false, order: -1 } ] }, 
+            options: { ...sharedChartOptions, scales: { 
+                x: { type: 'linear', min: -10, max: 10, title: {display: true, text: 'VGS (V)'}, grid: { color: 'rgba(255,255,255,0.15)' } }, 
+                y: { type: 'linear', title: {display: true, text: 'ID (mA)'}, grid: { color: 'rgba(255,255,255,0.15)' }, ticks: { callback: function(val) { return isLogScale ? val.toExponential(1) : val; } } } 
+            } } 
+        });
+
+        // --- 6. 互動與效能 Throttle 邏輯 ---
+        function updatePhysics() {
+            const vgsEl = document.getElementById('vgs-val'); if(vgsEl) vgsEl.textContent = vgs.toFixed(1) + ' V'; 
+            const vdsEl = document.getElementById('vds-val'); if(vdsEl) vdsEl.textContent = vds.toFixed(1) + ' V'; 
+            const tempEl = document.getElementById('temp-val'); if(tempEl) tempEl.textContent = temperature + '°C';
+            const lerEl = document.getElementById('ler-val'); if(lerEl) lerEl.textContent = processVariation + ' %';
+            const scaleEl = document.getElementById('scale-val'); if(scaleEl) scaleEl.textContent = (gateL_ratio * baseNanosheetNm).toFixed(1);
+            
+            const maxId = calculateId(10.0, 10.0, 25); const yMax = Math.max(10, maxId * 1.1); 
+            idvdChart.options.scales.y.max = yMax; idvdChart.options.scales.y.min = -yMax;
+            idvgChart.options.scales.y.max = yMax; idvgChart.options.scales.y.min = isLogScale ? 1e-4 : -yMax; 
+            
+            const currentId = calculateId(vgs, vds, temperature);
+            
+            const ssEl = document.getElementById('metric-ss'); if(ssEl) ssEl.textContent = (60 * (isSCEEnabled ? (1 + 0.3 / gateL_ratio) : 1)).toFixed(1) + ' mV/dec';
+            const gmEl = document.getElementById('metric-gm'); if(gmEl) gmEl.textContent = ((calculateId(vgs + 0.05, Math.max(0.1, Math.abs(vds)), temperature) - calculateId(Math.max(0, vgs - 0.05), Math.max(0.1, Math.abs(vds)), temperature)) / 0.1).toFixed(2) + ' mS';
+            const ion_val = calculateId(10.0, 10.0, temperature);
+            const ionEl = document.getElementById('metric-ion'); if(ionEl) ionEl.textContent = ion_val.toFixed(2) + ' mA';
+            const ioff_val = calculateId(0.0, 10.0, temperature); 
+            const ioffEl = document.getElementById('metric-ioff'); if(ioffEl) ioffEl.textContent = (ioff_val < 0.001) ? (ioff_val * 1000).toExponential(2) + ' μA' : ioff_val.toFixed(4) + ' mA';
+
+            const cgg_val = (gateW_ratio * gateH_ratio * gateL_ratio * 1.2) + 0.5; 
+            const delay_val = (cgg_val * 1e-15 * Math.max(0.1, Math.abs(vds))) / (Math.abs(ion_val) * 1e-3) * 1e12; 
+            const cggEl = document.getElementById('metric-cgg'); if(cggEl) cggEl.textContent = cgg_val.toFixed(2) + ' fF';
+            const delayEl = document.getElementById('metric-delay'); if(delayEl) delayEl.textContent = delay_val.toFixed(2) + ' ps';
+
+            let exp = (vgs <= currentVthEff) ? `【狀態】<strong class="text-slate-800 dark:text-white">關閉狀態 (次臨界)</strong>：Vgs 低於 Vth_eff (${currentVthEff.toFixed(2)}V)。<br>` : ((Math.abs(vds) < (vgs - currentVthEff)) ? `【狀態】<strong class="text-slate-800 dark:text-white">線性區導通</strong>：電晶體如壓控電阻。<br>` : `【狀態】<strong class="text-slate-800 dark:text-white">飽和區導通</strong>：通道夾止，電流達 Isat。<br>`);
+            if (isSCEEnabled && gateL_ratio < 0.8 && gateL_ratio > 0.4) exp += `⚠️ <span class="text-pink-600 font-bold">DIBL 短通道效應</span>：漏電流明顯增加。<br>`;
+            if (isSCEEnabled && gateL_ratio <= 0.4) exp += `⚛️ <span class="text-fuchsia-600 font-bold">量子穿隧 (BTBT) 發作</span>：極短通道引發能帶穿隧，漏電達物理極限無法關斷。<br>`;
+            if (processVariation > 20) exp += `🔬 <span class="text-indigo-600 font-bold">邊緣粗糙 (LER)</span>：奈米片寬度不均，導致電流雜訊與良率下降。<br>`;
+            if (temperature > 80) exp += `🔥 <span class="text-orange-600 font-bold">熱衰減現象</span>：高溫晶格散射導致載子移動率下降。<br>`;
+            if (vds < 0) exp += `🔄 <span class="text-blue-600 font-bold">反向偏壓</span>：汲極與源極物理互換，電流反向流通。<br>`;
+            const dynExpEl = document.getElementById('dynamic-explanation'); if(dynExpEl) dynExpEl.innerHTML = exp;
+
+            const maxIdDraw = calculateId(10.0, 10.0, 25);
+            currentSpeed = Math.min(1, Math.abs(currentId) / (maxIdDraw || 1)) * (vds < 0 ? -1 : 1);
+            if (vgs > currentVthEff) { channelMat.emissive.setHSL(0.6, 0.8, 0.2 * Math.min(1, (vgs - currentVthEff) / 5)); particlesMat.opacity = 0.1 + (Math.abs(currentSpeed) * 0.9); } 
+            else { channelMat.emissive.setHex(0x000000); particlesMat.opacity = 0.05; }
+            pointLight.intensity = Math.abs(currentSpeed) * 2.5;
+
+            const heatRatio = (temperature - 25) / 125;
+            components.forEach(mat => { if(mat.emissive && mat !== channelMat) mat.emissive.copy(new THREE.Color(0x000000)).lerp(new THREE.Color(0xff2200), heatRatio * 0.6); });
+
+            // 效能優化：圖表 Throttle 重繪 (防止120FPS動畫卡頓)
+            if(chartUpdateTimer) clearTimeout(chartUpdateTimer);
+            chartUpdateTimer = setTimeout(() => {
+                const idvdDs = generateIdVdCurves(temperature); for(let i=0; i<3; i++) idvdChart.data.datasets[i] = idvdDs[i];
+                idvdChart.data.datasets[3].data = [{x: vds, y: currentId}]; idvdChart.update('none');
+
+                const vgsPoints = []; for (let v = -10; v <= 10; v += 0.25) vgsPoints.push(v);
+                idvgChart.data.datasets[0].data = vgsPoints.map(vg => ({ x: vg, y: calculateId(vg, vds, temperature, true) })); 
+                idvgChart.data.datasets[1].data = [{x: vgs, y: currentId}]; idvgChart.update('none');
+            }, 30);
+        }
+
+        function updateGeometry() {
+            const srcLInput = document.getElementById('source-l-slider');
+            const drnLInput = document.getElementById('drain-l-slider');
+            const gateLInput = document.getElementById('gate-l-slider');
+            const gateHInput = document.getElementById('gate-h-slider');
+            const gateWInput = document.getElementById('gate-w-slider');
+            
+            const srcL = srcLInput ? parseFloat(srcLInput.value) : 1.0;
+            const drnL = drnLInput ? parseFloat(drnLInput.value) : 1.0;
+            gateL_ratio = gateLInput ? parseFloat(gateLInput.value) : 1.0;
+            gateH_ratio = gateHInput ? parseFloat(gateHInput.value) : 1.0;
+            gateW_ratio = gateWInput ? parseFloat(gateWInput.value) : 1.0;
+            
+            // 底部錨定縮放
+            gateMesh.scale.set(gateL_ratio, gateH_ratio, gateW_ratio); 
+            gateMesh.position.y = 2.5 * gateH_ratio;
+            
+            sourceMesh.scale.set(srcL, gateH_ratio, gateW_ratio); 
+            sourceMesh.position.y = 0.2 + 2.25 * gateH_ratio;
+            sourceMesh.position.x = -1.25*gateL_ratio - srcL; 
+            
+            drainMesh.scale.set(drnL, gateH_ratio, gateW_ratio);
+            drainMesh.position.y = 0.2 + 2.25 * gateH_ratio;
+            drainMesh.position.x = 1.25*gateL_ratio + drnL;
+
+            activeRegionGroup.scale.set(1, gateH_ratio, 1);
+            activeRegionGroup.position.y = 2.4 * gateH_ratio;
+            
+            sheetRows.forEach(row => { row.scale.set(gateL_ratio + (srcL+drnL)/3, 1, 1); });
+            channelMeshes.forEach(seg => {
+                const noise = (Math.random() - 0.5) * (processVariation / 100) * 1.5;
+                seg.scale.set(1, 1, Math.max(0.1, gateW_ratio + noise)); 
+            });
+            
+            updatePhysics();
+        }
+
+        ['vgs-slider', 'vds-slider', 'temp-slider'].forEach(id => { safeAddListener(id, 'input', e => { 
+                if(id==='vgs-slider') vgs = parseFloat(e.target.value); else if(id==='vds-slider') vds = parseFloat(e.target.value); else if(id==='temp-slider') temperature = parseInt(e.target.value);
+                updatePhysics(); 
+        }); });
+
+        safeAddListener('ler-slider', 'input', e => { processVariation = parseFloat(e.target.value); updateGeometry(); });
+        safeAddListener('sync-sd', 'change', e => syncSD = e.target.checked);
+        safeAddListener('source-l-slider', 'input', e => { if(syncSD) safeSetValue('drain-l-slider', e.target.value); updateGeometry(); });
+        safeAddListener('drain-l-slider', 'input', e => { if(syncSD) safeSetValue('source-l-slider', e.target.value); updateGeometry(); });
+        ['gate-l-slider', 'gate-h-slider', 'gate-w-slider'].forEach(id => safeAddListener(id, 'input', updateGeometry));
+
+        function setTilt(angle) {
+            tiltAngle = angle; safeSetValue('tilt-input', angle.toFixed(2));
+            activeRegionGroup.rotation.x = THREE.MathUtils.degToRad(angle);
+        }
+        safeAddListener('tilt-input', 'input', e => setTilt(parseFloat(e.target.value) || 0));
+        document.querySelectorAll('.tilt-preset').forEach(btn => btn.addEventListener('click', e => setTilt(parseFloat(e.target.dataset.angle))));
+
+        safeAddListener('sub-type-select', 'change', e => { VTH_BASE = e.target.value === 'P-' ? 0.3 : (e.target.value === 'P+' ? 0.5 : 0.1); updatePhysics(); });
+        safeAddListener('log-toggle', 'change', e => { isLogScale = e.target.checked; idvgChart.options.scales.y.type = isLogScale ? 'logarithmic' : 'linear'; idvgChart.options.scales.y.title.text = isLogScale ? 'ID (A)' : 'ID (mA)'; updatePhysics(); });
+        safeAddListener('sce-toggle', 'change', e => { isSCEEnabled = e.target.checked; updatePhysics(); });
+        
+        safeAddListener('btn-preset-perf', 'click', () => { vgs=10.0; vds=10.0; temperature=45; safeSetValue('vgs-slider', 10.0); safeSetValue('vds-slider', 10.0); safeSetValue('temp-slider', 45); safeSetValue('gate-l-slider', 0.5); safeSetValue('gate-w-slider', 2.0); safeSetValue('ler-slider', 0); processVariation=0; updateGeometry(); });
+        safeAddListener('btn-preset-heat', 'click', () => { vgs=5.0; vds=5.0; temperature=150; safeSetValue('vgs-slider', 5.0); safeSetValue('vds-slider', 5.0); safeSetValue('temp-slider', 150); updatePhysics(); });
+        safeAddListener('btn-preset-leak', 'click', () => { vgs=0.0; vds=5.0; temperature=25; safeSetValue('vgs-slider', 0.0); safeSetValue('vds-slider', 5.0); safeSetValue('temp-slider', 25); safeSetValue('gate-l-slider', 0.2); const logT = document.getElementById('log-toggle'); if(logT) logT.checked=true; isLogScale=true; idvgChart.options.scales.y.type='logarithmic'; idvgChart.options.scales.y.title.text='ID (A)'; updateGeometry(); });
+        safeAddListener('btn-preset-var', 'click', () => { vgs=5.0; vds=5.0; safeSetValue('vgs-slider', 5.0); safeSetValue('vds-slider', 5.0); safeSetValue('ler-slider', 80); processVariation=80; updateGeometry(); });
+
+        let isXRay = false;
+        safeAddListener('btn-xray', 'click', (e) => {
+            isXRay = !isXRay; gateMat.transparent = true; gateMat.opacity = isXRay ? 0.25 : 0.85; gateMat.roughness = isXRay ? 0.8 : 0.2;
+            e.currentTarget.classList.toggle('bg-blue-100'); e.currentTarget.classList.toggle('dark:bg-blue-900/50');
+            e.currentTarget.classList.toggle('bg-cyan-600'); e.currentTarget.classList.toggle('text-blue-700'); 
+            e.currentTarget.classList.toggle('dark:text-blue-300'); e.currentTarget.classList.toggle('text-white');
+        });
+
+        // --- 7. 日夜與分頁 (隱藏坐標軸邏輯) ---
+        let currentMode = 'structure';
+        function setMode(mode) {
+            const pageTrans = document.getElementById('page-transition');
+            if (!pageTrans || (currentMode === mode && pageTrans.style.opacity !== '1')) return;
+            pageTrans.style.opacity = '1';
+            setTimeout(() => {
+                currentMode = mode;
+                ['structure', 'characteristics', 'formula', 'references'].forEach(m => {
+                    const btn = document.getElementById(`btn-${m}`); if (btn) btn.classList.toggle('active', m === mode);
+                    const el = document.getElementById(`page-${m}`); if (el) { el.style.opacity = m === mode ? '1' : '0'; el.style.visibility = m === mode ? 'visible' : 'hidden'; el.style.zIndex = m === mode ? '10' : '0'; }
+                });
+                
+                // 動態隱藏/顯示右上角 XYZ 坐標軸
+                const axesInset = document.getElementById('axes-inset');
+                if(axesInset) axesInset.style.opacity = (mode === 'structure' || mode === 'characteristics') ? '1' : '0';
+
+                if(mode === 'characteristics') { setTimeout(() => { idvdChart.resize(); idvgChart.resize(); idvdChart.update(); idvgChart.update(); }, 50); }
+
+                const isMobile = window.innerWidth < 768; const isUltrawide = window.innerWidth > 2000;
+                if (mode === 'structure') { 
+                    controls.target.set(isMobile ? 0 : (isUltrawide ? -6 : -4.5), 2, 0); 
+                    camera.position.set(isMobile ? 18 : (isUltrawide ? 12 : 14), isMobile ? 18 : 14, isMobile ? 25 : (isUltrawide ? 20 : 25)); 
+                    scene.fog.density = 0.02; 
+                } 
+                else if (mode === 'characteristics') { controls.target.set(0, 1, 0); camera.position.set(0, 16, 22); scene.fog.density = 0.02; } 
+                else { controls.target.set(0, 0, 0); camera.position.set(0, 18, 38); scene.fog.density = 0.04; }
+                pageTrans.style.opacity = '0';
+            }, 500);
+        }
+        ['structure', 'characteristics', 'formula', 'references'].forEach(m => safeAddListener(`btn-${m}`, 'click', () => setMode(m)));
+
+        safeAddListener('theme-toggle-btn', 'click', () => {
+            isLightMode = !isLightMode; document.body.classList.toggle('dark-mode', !isLightMode);
+            const iconSun = document.getElementById('icon-sun'); if (iconSun) iconSun.classList.toggle('hidden', isLightMode); 
+            const iconMoon = document.getElementById('icon-moon'); if (iconMoon) iconMoon.classList.toggle('hidden', !isLightMode);
+            scene.fog.color.setHex(isLightMode ? 0xf8fafc : 0x050505);
+            ambientLight.intensity = isLightMode ? 0.8 : 1.5; dirLight.intensity = isLightMode ? 1.2 : 3.0; 
+            
+            // 更換網格色彩與對比度
+            gridHelper.material.color.setHex(isLightMode ? 0x0ea5e9 : 0x0ea5e9);
+            gridHelper.material.opacity = isLightMode ? 0.45 : 0.5;
+
+            const chartColor = isLightMode ? '#64748b' : '#cbd5e1'; const gridColor = isLightMode ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.15)';
+            [idvdChart, idvgChart].forEach(chart => {
+                chart.options.scales.x.title.color = chartColor; chart.options.scales.y.title.color = chartColor;
+                chart.options.scales.x.ticks.color = chartColor; chart.options.scales.y.ticks.color = chartColor;
+                chart.options.scales.x.grid.color = gridColor; chart.options.scales.y.grid.color = gridColor;
+                chart.options.plugins.tooltip.backgroundColor = isLightMode ? 'rgba(255, 255, 255, 0.95)' : 'rgba(15, 20, 30, 0.95)';
+                chart.options.plugins.tooltip.titleColor = isLightMode ? '#0f172a' : '#ffffff'; chart.options.plugins.tooltip.bodyColor = isLightMode ? '#0f172a' : '#ffffff';
+                chart.options.plugins.tooltip.borderColor = gridColor; chart.update();
+            });
+            const scaleLine = document.getElementById('scale-line');
+            if (scaleLine) scaleLine.className = isLightMode ? "w-48 h-[3px] bg-slate-500 relative drop-shadow-sm" : "w-48 h-[3px] bg-gray-400 relative drop-shadow-md";
+        });
+
+        function updateLabels() {
+            if (currentMode !== 'structure' && currentMode !== 'characteristics') return;
+            [{ id: 'label-source', pos: new THREE.Vector3(-4, 5.0, 0), mode: 'structure' }, { id: 'label-drain', pos: new THREE.Vector3(4, 5.0, 0), mode: 'structure' }, { id: 'label-gate', pos: new THREE.Vector3(0, 5.2, 0), mode: 'structure' }, { id: 'label-channel', pos: new THREE.Vector3(0, 1.2, 3.5), mode: 'structure' }, { id: 'label-sub', pos: new THREE.Vector3(0, -0.5, 4.5), mode: 'structure' }
+            ].forEach(data => {
+                const el = document.getElementById(data.id); if (!el) return;
+                if (data.mode === 'structure' && currentMode !== 'structure') { el.style.display = 'none'; return; }
+                const vector = data.pos.clone(); vector.project(camera);
+                if (vector.z > 1) { el.style.display = 'none'; return; }
+                el.style.display = 'block'; el.style.left = `${(vector.x * 0.5 + 0.5) * window.innerWidth}px`; el.style.top = `${(vector.y * -0.5 + 0.5) * window.innerHeight}px`;
+            });
+        }
+
+        // 初始化狀態
+        setTimeout(() => { 
+            const isMobile = window.innerWidth < 768; const isUltrawide = window.innerWidth > 2000;
+            controls.target.set(isMobile ? 0 : (isUltrawide ? -6 : -4.5), 2, 0); 
+            camera.position.set(isMobile ? 18 : (isUltrawide ? 12 : 14), isMobile ? 18 : 14, isMobile ? 25 : (isUltrawide ? 20 : 25)); 
+            
+            // 強制初始化一次網格
+            gridHelper.material.opacity = 0.5;
+            
+            updateGeometry(); 
+        }, 50);
+
+        // --- 8. 動畫迴圈 (120FPS) ---
+        const clock = new THREE.Clock();
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            if (currentMode === 'formula' || currentMode === 'references') { camera.position.x = Math.sin(clock.getElapsedTime() * 0.1) * 35; camera.position.z = Math.cos(clock.getElapsedTime() * 0.1) * 35; camera.lookAt(0, 0, 0); } else { controls.update(); }
+            updateLabels();
+
+            const positions = particleSystem.geometry.attributes.position.array;
+            for(let i = 0; i < particleCount; i++) {
+                positions[i*3] += currentSpeed * 15 * delta;
+                if (currentSpeed > 0 && positions[i*3] > 4) { positions[i*3] = -4; positions[i*3+2] = (Math.random() - 0.5) * 2.3 * gateW_ratio; }
+                else if (currentSpeed < 0 && positions[i*3] < -4) { positions[i*3] = 4; positions[i*3+2] = (Math.random() - 0.5) * 2.3 * gateW_ratio; } 
+            }
+            particleSystem.geometry.attributes.position.needsUpdate = true;
+            
+            axesCamera.position.copy(camera.position); axesCamera.position.sub(controls.target); axesCamera.position.setLength(6); axesCamera.lookAt(axesScene.position);
+            
+            renderer.render(scene, camera);
+            if(axesContainer.clientWidth > 0 && (currentMode === 'structure' || currentMode === 'characteristics')) {
+                axesRenderer.setSize(axesContainer.clientWidth, axesContainer.clientHeight);
+                axesRenderer.render(axesScene, axesCamera); 
+            }
+        }
+        window.addEventListener('resize', () => { 
+            camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); 
+            if(currentMode === 'structure') {
+                const isMobile = window.innerWidth < 768; const isUltrawide = window.innerWidth > 2000;
+                controls.target.set(isMobile ? 0 : (isUltrawide ? -6 : -4.5), 2, 0); 
+                camera.position.set(isMobile ? 18 : (isUltrawide ? 12 : 14), isMobile ? 18 : 14, isMobile ? 25 : (isUltrawide ? 20 : 25)); 
+            }
+        });
+        
+        setTimeout(() => { idvdChart.resize(); idvgChart.resize(); updatePhysics(); }, 150);
+        animate();
+    </script>
+</body>
+</html>
